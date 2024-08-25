@@ -15,18 +15,37 @@ use librespot::playback::player::Player;
 use librespot::{core::config::SessionConfig, discovery::Discovery};
 use sha1::{Digest, Sha1};
 
-mod auth;
+mod clap;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    let credentials = fetch_credentials().await?;
-    let session_config = SessionConfig::default();
+    let command = clap::args::cli().get_matches();
 
-    let (session, _) = Session::connect(session_config, credentials, None, false)
-        .await
-        .expect("Failed to connect to Spotify");
+    match command.subcommand() {
+        Some(("discover", _)) => {
+            // Handle the 'discover' subcommand
+            println!("Discovering Spotify Connect devices");
+            discover().await?;
+        }
+        Some(("play", sub_m)) => {
+            let credentials = fetch_credentials().await?;
+            let session_config = SessionConfig::default();
 
-    play_track(session).await?;
+            // Handle the 'play' subcommand
+            if let Some(track) = sub_m.get_one::<String>("track") {
+                let (session, _) = Session::connect(session_config, credentials, None, false)
+                    .await
+                    .expect("Failed to connect to Spotify");
+
+                play_track(session, track).await?;
+            } else {
+                return Err(anyhow!("Track ID is required for the play command"));
+            }
+        }
+        _ => {
+            return Err(anyhow!("No valid subcommand provided"));
+        }
+    }
 
     Ok(())
 }
@@ -75,16 +94,21 @@ async fn discover() -> Result<(), anyhow::Error> {
         let (session, _) = Session::connect(session_config, credentials, cache, true)
             .await
             .expect("Failed to connect to Spotify");
+
+        println!("Found device: {}, saved credentials", session.device_id());
+        break;
     }
 
     Ok(())
 }
 
-async fn play_track(session: Session) -> Result<(), anyhow::Error> {
+async fn play_track(session: Session, track_uri: &str) -> Result<(), anyhow::Error> {
+    println!("Start to play track {}", track_uri);
+
     let player_config = PlayerConfig::default();
     let audio_format = AudioFormat::default();
 
-    let track_id = SpotifyId::from_uri("spotify:track:76K8P2HwfKq8gPxOWoBQkG").unwrap();
+    let track_id = SpotifyId::from_uri(&track_uri).unwrap();
     let backend = audio_backend::find(None).unwrap();
 
     let (mut player, _) = Player::new(player_config, session, Box::new(NoOpVolume), move || {
