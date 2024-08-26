@@ -3,11 +3,13 @@ use std::io::BufReader;
 use std::path::Path;
 
 use anyhow::anyhow;
+use futures::future;
 use futures::StreamExt;
 use librespot::core::cache::Cache;
 use librespot::core::session::Session;
 use librespot::core::spotify_id::SpotifyId;
 use librespot::discovery::{Credentials, DeviceType};
+use librespot::metadata::{Artist, Metadata, Track};
 use librespot::playback::audio_backend;
 use librespot::playback::config::{AudioFormat, PlayerConfig};
 use librespot::playback::mixer::NoOpVolume;
@@ -111,14 +113,40 @@ async fn play_track(session: Session, track_uri: &str) -> Result<(), anyhow::Err
     let track_id = SpotifyId::from_uri(&track_uri).unwrap();
     let backend = audio_backend::find(None).unwrap();
 
-    let (mut player, _) = Player::new(player_config, session, Box::new(NoOpVolume), move || {
-        backend(None, audio_format)
-    });
+    let (mut player, _) = Player::new(
+        player_config,
+        session.clone(),
+        Box::new(NoOpVolume),
+        move || backend(None, audio_format),
+    );
 
     player.load(track_id, true, 0);
-    println!("Playing...");
+
+    let track = Track::get(&session, track_id)
+        .await
+        .expect("Failed to fetch track metadata");
+
+    let artist_names: Vec<String> = future::join_all(
+        track
+            .artists
+            .into_iter()
+            .map(|artist_id| fetch_artist(&session, artist_id)),
+    )
+    .await
+    .into_iter()
+    .collect::<Result<Vec<String>, _>>()?;
+
+    println!("Playing '{}' by '{}'", track.name, artist_names.join(", "));
     player.await_end_of_track().await;
     println!("Done");
 
     Ok(())
+}
+
+async fn fetch_artist(session: &Session, artist_id: SpotifyId) -> Result<String, anyhow::Error> {
+    let artist = Artist::get(&session, artist_id)
+        .await
+        .expect("Failed to fetch artist metadata");
+
+    Ok(artist.name)
 }
