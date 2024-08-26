@@ -25,7 +25,6 @@ async fn main() -> Result<(), anyhow::Error> {
 
     match command.subcommand() {
         Some(("discover", _)) => {
-            // Handle the 'discover' subcommand
             println!("Discovering Spotify Connect devices");
             discover().await?;
         }
@@ -33,7 +32,6 @@ async fn main() -> Result<(), anyhow::Error> {
             let credentials = fetch_credentials().await?;
             let session_config = SessionConfig::default();
 
-            // Handle the 'play' subcommand
             if let Some(track) = sub_m.get_one::<String>("track") {
                 let (session, _) = Session::connect(session_config, credentials, None, false)
                     .await
